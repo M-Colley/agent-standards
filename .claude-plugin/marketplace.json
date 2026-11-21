@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "agent-standards",
+  "description": "Direct scientific prose rules, Colley et al. HCI empirical paper specification, mechcheck verification, and open-science engineering guardrails.",
+  "owner": {
+    "name": "Mark Colley",
+    "url": "https://github.com/M-Colley"
+  },
+  "plugins": [
+    {
+      "name": "agent-standards",
+      "description": "Always-on HCI scientific writing rules, Colley et al. empirical paper skill, four-gate peer review rubric, and Stop prose gate.",
+      "source": "./",
+      "category": "productivity"
+    }
+  ]
+}

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -46,6 +47,15 @@ def check_manifests() -> list[str]:
     if len(versions) != 1:
         errors.append(f"Manifest version mismatch across providers: {sorted(versions)}")
 
+    marketplace_path = REPO_ROOT / ".claude-plugin" / "marketplace.json"
+    if not marketplace_path.is_file():
+        errors.append(f"Missing Claude marketplace manifest: {marketplace_path}")
+    else:
+        mkt = json.loads(marketplace_path.read_text(encoding="utf-8"))
+        plugins = mkt.get("plugins", [])
+        if not plugins or plugins[0].get("name") != "agent-standards":
+            errors.append("Invalid .claude-plugin/marketplace.json plugins entry.")
+
     hooks_path = REPO_ROOT / "hooks.json"
     hooks_data = json.loads(hooks_path.read_text(encoding="utf-8"))
     if "manuscript-prose-gate" not in hooks_data:
@@ -68,9 +78,7 @@ def check_manifests() -> list[str]:
 def check_markdown_hygiene() -> list[str]:
     errors: list[str] = []
     for md in sorted(REPO_ROOT.rglob("*.md")):
-        for idx, line in enumerate(
-            md.read_text(encoding="utf-8").splitlines(), start=1
-        ):
+        for idx, line in enumerate(md.read_text(encoding="utf-8").splitlines(), start=1):
             hit = DASH_PUNCT_RE.search(line)
             if hit:
                 errors.append(
@@ -79,7 +87,7 @@ def check_markdown_hygiene() -> list[str]:
     return errors
 
 
-def check_stop_hook_behavior() -> list[str]:
+def check_hooks_behavior() -> list[str]:
     errors: list[str] = []
     with tempfile.TemporaryDirectory() as tmp:
         ws = Path(tmp)
@@ -106,9 +114,7 @@ def check_stop_hook_behavior() -> list[str]:
         if res_agy.get("decision") != "continue":
             errors.append(f"Expected Antigravity Stop gate 'continue', got: {res_agy}")
 
-        res_claude = stop_prose_gate.evaluate_payload(
-            {"stop_hook_active": False, "cwd": str(ws)}
-        )
+        res_claude = stop_prose_gate.evaluate_payload({"stop_hook_active": False, "cwd": str(ws)})
         if res_claude.get("decision") != "block":
             errors.append(f"Expected Claude Stop gate 'block', got: {res_claude}")
 
@@ -120,9 +126,32 @@ def check_stop_hook_behavior() -> list[str]:
             }
         )
         if res_loop_guard != {}:
-            errors.append(
-                f"Expected continuationActive loop guard {{}}, got: {res_loop_guard}"
-            )
+            errors.append(f"Expected continuationActive loop guard {{}}, got: {res_loop_guard}")
+
+        empty_claude_dir = ws / "empty_claude"
+        empty_claude_dir.mkdir()
+        env = dict(**os.environ, CLAUDE_CONFIG_DIR=str(empty_claude_dir))
+        start_script = REPO_ROOT / "scripts" / "claude_session_start.py"
+        p_main = subprocess.run(
+            [sys.executable, str(start_script)],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+        )
+        if p_main.returncode != 0 or "Global Operating Rules" not in p_main.stdout:
+            errors.append("Expected claude_session_start.py to emit rules.")
+
+        p_sub = subprocess.run(
+            [sys.executable, str(start_script), "--subagent"],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+        )
+        sub_json = json.loads(p_sub.stdout or "{}")
+        if sub_json.get("hookSpecificOutput", {}).get("hookEventName") != "SubagentStart":
+            errors.append("Expected SubagentStart JSON output from claude_session_start.py.")
     return errors
 
 
@@ -134,8 +163,24 @@ def check_installer_roundtrip() -> list[str]:
         loose = home / ".gemini" / "config" / "rules"
         loose.mkdir(parents=True)
         (loose / "ci-verification.md").write_text("old", encoding="utf-8")
+        claude_settings = home / ".claude" / "settings.json"
+        claude_settings.parent.mkdir(parents=True)
+        claude_settings.write_text('{"skipWorkflowUsageWarning": true}\n', encoding="utf-8")
 
-        for extra_args in ([], ["--check"], ["--uninstall"]):
+        p_install = subprocess.run(
+            [sys.executable, str(installer), "--home", str(home)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if p_install.returncode != 0:
+            errors.append(f"install.py failed: {p_install.stdout} {p_install.stderr}")
+
+        installed_settings = json.loads(claude_settings.read_text(encoding="utf-8"))
+        if not installed_settings.get("hooks", {}).get("Stop"):
+            errors.append("Expected Claude settings.json to register Stop hook.")
+
+        for extra_args in (["--check"], ["--uninstall"]):
             proc = subprocess.run(
                 [sys.executable, str(installer), "--home", str(home), *extra_args],
                 capture_output=True,
@@ -148,6 +193,11 @@ def check_installer_roundtrip() -> list[str]:
                 )
         if (loose / "ci-verification.md").exists():
             errors.append("Expected migrated loose rule to be cleaned up.")
+        uninstalled_settings = json.loads(claude_settings.read_text(encoding="utf-8"))
+        if "hooks" in uninstalled_settings or not uninstalled_settings.get(
+            "skipWorkflowUsageWarning"
+        ):
+            errors.append("Expected clean Claude settings.json after uninstall.")
     return errors
 
 
@@ -155,14 +205,14 @@ def main() -> int:
     failures = (
         check_manifests()
         + check_markdown_hygiene()
-        + check_stop_hook_behavior()
+        + check_hooks_behavior()
         + check_installer_roundtrip()
     )
     if failures:
         for item in failures:
             print(f"FAIL: {item}", file=sys.stderr)
         return 1
-    print("All manifest, prose-hygiene, stop-hook, and installer checks passed.")
+    print("All manifest, prose-hygiene, hook, and installer checks passed.")
     return 0
 
 

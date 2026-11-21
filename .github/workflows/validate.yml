@@ -21,7 +21,7 @@ jobs:
         run: python -m pip install ruff
       - name: Lint and format check
         run: |
-          ruff check --target-version py310 scripts
-          ruff format --target-version py310 --check scripts
+          ruff check scripts
+          ruff format --check scripts
       - name: Validate manifests, prose hygiene, hooks, and installer
         run: python scripts/validate_repo.py

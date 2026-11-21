@@ -90,9 +90,7 @@ def discover_modified_tex(roots: list[Path]) -> list[Path]:
                 check=False,
             )
             repo_base = (
-                Path(top.stdout.strip())
-                if top.returncode == 0 and top.stdout.strip()
-                else root
+                Path(top.stdout.strip()) if top.returncode == 0 and top.stdout.strip() else root
             )
             for line in proc.stdout.splitlines():
                 if len(line) < 4:
@@ -140,14 +138,10 @@ def check_tex_file(path: Path) -> list[str]:
     for idx, line in enumerate(prose.splitlines(), start=1):
         dash_hit = PROSE_DASH_RE.search(line)
         if dash_hit:
-            issues.append(
-                f"{path.name}:{idx}: prose dash {dash_hit.group(0)!r} prohibited"
-            )
+            issues.append(f"{path.name}:{idx}: prose dash {dash_hit.group(0)!r} prohibited")
         phrase_hit = BANNED_RE.search(line)
         if phrase_hit:
-            issues.append(
-                f"{path.name}:{idx}: banned phrase {phrase_hit.group(0)!r} prohibited"
-            )
+            issues.append(f"{path.name}:{idx}: banned phrase {phrase_hit.group(0)!r} prohibited")
     return issues
 
 
@@ -175,8 +169,7 @@ def run_mechcheck(tex_files: list[Path]) -> list[str]:
             lines = [
                 ln.strip()
                 for ln in (proc.stdout + "\n" + proc.stderr).splitlines()
-                if ln.strip()
-                and ("error" in ln.lower() or re.match(r"^[A-Z]{3}\d{3}", ln.strip()))
+                if ln.strip() and ("error" in ln.lower() or re.match(r"^[A-Z]{3}\d{3}", ln.strip()))
             ]
             errors.extend(lines[:8] or [f"mechcheck failed in {parent.name}"])
     return errors
@@ -186,10 +179,7 @@ def evaluate_payload(payload: dict[str, Any]) -> dict[str, Any]:
     is_claude = "stop_hook_active" in payload
     if payload.get("continuationActive") or payload.get("stop_hook_active"):
         return {}
-    if (
-        not is_claude
-        and payload.get("terminationReason", "NO_TOOL_CALL") != "NO_TOOL_CALL"
-    ):
+    if not is_claude and payload.get("terminationReason", "NO_TOOL_CALL") != "NO_TOOL_CALL":
         return {}
 
     raw_paths: list[str] = list(payload.get("workspacePaths") or [])

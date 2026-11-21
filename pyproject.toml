@@ -1,0 +1,14 @@
+[project]
+name = "agent-standards"
+version = "1.2.0"
+description = "Cross-agent HCI scientific writing rules, skills, and verification hooks for Antigravity, Claude Code, and Codex."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP", "B", "RUF"]

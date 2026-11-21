@@ -1,12 +1,36 @@
 {
   "name": "agent-standards",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Direct scientific prose rules, Colley et al. HCI empirical paper specification, mechcheck verification, and open-science engineering guardrails.",
   "author": {
     "name": "Mark Colley",
     "url": "https://github.com/M-Colley"
   },
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -c \"import os,re,runpy; r=re.sub(r'^/([a-zA-Z])/', r'\\1:/', os.environ.get('CLAUDE_PLUGIN_ROOT','.')); runpy.run_path(r+'/scripts/claude_session_start.py', run_name='__main__')\"",
+            "timeout": 10,
+            "statusMessage": "Loading HCI and open-science standards..."
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -c \"import os,re,runpy,sys; sys.argv.append('--subagent'); r=re.sub(r'^/([a-zA-Z])/', r'\\1:/', os.environ.get('CLAUDE_PLUGIN_ROOT','.')); runpy.run_path(r+'/scripts/claude_session_start.py', run_name='__main__')\"",
+            "timeout": 10,
+            "statusMessage": "Loading HCI and open-science standards for subagent..."
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
