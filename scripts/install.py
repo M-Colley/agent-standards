@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import re
@@ -69,6 +70,27 @@ def iter_files(root: Path) -> dict[Path, bytes]:
     return result
 
 
+def sync_tree_inplace(
+    src_tree: dict[Path, bytes], dst_tree: dict[Path, bytes], dst_root: Path
+) -> None:
+    for stale_rel in sorted(dst_tree.keys() - src_tree.keys(), reverse=True):
+        stale_file = dst_root / stale_rel
+        with contextlib.suppress(OSError):
+            stale_file.unlink()
+        parent = stale_file.parent
+        while parent != dst_root and parent.exists():
+            with contextlib.suppress(OSError):
+                parent.rmdir()
+            parent = parent.parent
+
+    for rel, data in src_tree.items():
+        if dst_tree.get(rel) == data:
+            continue
+        out = dst_root / rel
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(data)
+
+
 def sync_flat_agent(
     agent: str,
     rule_path: Path,
@@ -95,12 +117,7 @@ def sync_flat_agent(
         if src_tree != dst_tree:
             drift.append(f"[{agent}] skill out of sync: {dst_dir}")
             if not check_only:
-                if dst_dir.exists():
-                    shutil.rmtree(dst_dir)
-                for rel, data in src_tree.items():
-                    out = dst_dir / rel
-                    out.parent.mkdir(parents=True, exist_ok=True)
-                    out.write_bytes(data)
+                sync_tree_inplace(src_tree, dst_tree, dst_dir)
     return drift
 
 
@@ -276,18 +293,7 @@ def sync_antigravity_plugin(
     if src_tree != dst_tree:
         drift.append(f"[antigravity] plugin out of sync: {plugin_dst}")
         if not check_only:
-            if plugin_dst.exists():
-                for child in plugin_dst.iterdir():
-                    if child.name == ".git":
-                        continue
-                    if child.is_dir():
-                        shutil.rmtree(child)
-                    else:
-                        child.unlink()
-            for rel, data in src_tree.items():
-                out = plugin_dst / rel
-                out.parent.mkdir(parents=True, exist_ok=True)
-                out.write_bytes(data)
+            sync_tree_inplace(src_tree, dst_tree, plugin_dst)
     return drift
 
 
