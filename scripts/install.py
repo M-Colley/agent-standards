@@ -17,6 +17,11 @@ BLOCK_RE = re.compile(
     flags=re.DOTALL,
 )
 SKIP_PARTS = {".git", "__pycache__", ".pytest_cache", ".ruff_cache"}
+MIGRATED_LOOSE_RULES = (
+    "ci-verification.md",
+    "git-pr-hygiene.md",
+    "upstream-prs.md",
+)
 
 
 def build_managed_block(core_rules: str) -> str:
@@ -100,6 +105,14 @@ def cleanup_loose_antigravity(
                     loose_rule.write_text(remaining, encoding="utf-8", newline="\n")
                 else:
                     loose_rule.unlink()
+
+    loose_rules_dir = home / ".gemini" / "config" / "rules"
+    for fname in MIGRATED_LOOSE_RULES:
+        dup_rule = loose_rules_dir / fname
+        if dup_rule.exists():
+            drift.append(f"[antigravity] migrated loose rule present: {dup_rule}")
+            if not check_only:
+                dup_rule.unlink()
 
     loose_skills_root = home / ".gemini" / "config" / "skills"
     for skill_dir in sorted(p for p in skills_src_root.iterdir() if p.is_dir()):

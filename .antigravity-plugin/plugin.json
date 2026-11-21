@@ -2,13 +2,13 @@
   "$schema": "https://antigravity.google/schemas/v1/plugin.json",
   "name": "agent-standards",
   "displayName": "HCI and Open Science Standards",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Direct scientific prose rules, Colley et al. HCI empirical paper specification, mechcheck verification, and open-science engineering guardrails.",
   "logo": "assets/logo.svg",
   "suggestedPrompts": [
     "Draft a 150-word CHI abstract following the five-move Colley et al. structure",
     "Audit this LaTeX manuscript with mechcheck and fix style violations",
-    "Review this HCI paper draft with direct methodological and statistical critique"
+    "Review this HCI paper submission using the four-gate peer review rubric"
   ],
   "author": {
     "name": "Mark Colley",

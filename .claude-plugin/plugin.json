@@ -1,0 +1,23 @@
+{
+  "name": "agent-standards",
+  "version": "1.1.0",
+  "description": "Direct scientific prose rules, Colley et al. HCI empirical paper specification, mechcheck verification, and open-science engineering guardrails.",
+  "author": {
+    "name": "Mark Colley",
+    "url": "https://github.com/M-Colley"
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -c \"import os,re,runpy; r=re.sub(r'^/([a-zA-Z])/', r'\\1:/', os.environ.get('CLAUDE_PLUGIN_ROOT','.')); runpy.run_path(r+'/scripts/stop_prose_gate.py', run_name='__main__')\"",
+            "timeout": 20,
+            "statusMessage": "Running manuscript prose and mechcheck gate..."
+          }
+        ]
+      }
+    ]
+  }
+}
