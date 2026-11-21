@@ -1,0 +1,6 @@
+interface:
+  display_name: "HCI Paper Writing"
+  short_description: "Colley et al. HCI empirical paper style and mechcheck verification"
+  default_prompt: "Use $hci-paper-writing to draft, revise, check, or review this manuscript."
+policy:
+  allow_implicit_invocation: true
