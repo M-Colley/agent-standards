@@ -217,6 +217,24 @@ def check_hook_unicode_paths() -> list[str]:
     return errors
 
 
+def check_fallback_scan_bounds() -> list[str]:
+    """Non-git fallback must prune SKIP_DIRS and stop MAX_SCAN_DEPTH levels below the root."""
+    depth = stop_prose_gate.MAX_SCAN_DEPTH
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        for tex in (
+            root.joinpath(*["d"] * depth, "within.tex"),
+            root.joinpath(*["d"] * (depth + 1), "beyond.tex"),
+            root / "node_modules" / "vendored.tex",
+        ):
+            tex.parent.mkdir(parents=True, exist_ok=True)
+            tex.write_text("x\n", encoding="utf-8")
+        found = sorted(p.name for p in stop_prose_gate.discover_modified_tex([root]))
+    if found != ["within.tex"]:
+        return [f"Expected the non-git scan to find only within.tex, got: {found}"]
+    return []
+
+
 def check_installer_roundtrip() -> list[str]:
     errors: list[str] = []
     installer = REPO_ROOT / "scripts" / "install.py"
@@ -269,6 +287,7 @@ def main() -> int:
         + check_markdown_hygiene()
         + check_hooks_behavior()
         + check_hook_unicode_paths()
+        + check_fallback_scan_bounds()
         + check_installer_roundtrip()
     )
     if failures:

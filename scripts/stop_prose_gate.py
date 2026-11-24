@@ -10,6 +10,7 @@ import re
 import subprocess
 import sys
 import time
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,9 @@ SKIP_DIRS = {
     "fixtures",
     "demo",
 }
+# Directory levels the non-git fallback scans below a workspace root. Bounds Stop latency in
+# large non-repository folders such as a home directory.
+MAX_SCAN_DEPTH = 4
 SKIP_ENV_RE = re.compile(
     r"\\begin\{(verbatim|lstlisting|minted|tabular\*?|tabularx|longtable|thebibliography|equation\*?|align\*?|gather\*?|tikzpicture)\}"
     r".*?\\end\{\1\}",
@@ -62,6 +66,20 @@ def emit(obj: dict[str, Any]) -> int:
     sys.stdout.write(json.dumps(obj) + "\n")
     sys.stdout.flush()
     return 0
+
+
+def iter_tex_files(root: Path) -> Iterator[Path]:
+    """Yield .tex files under root, pruning SKIP_DIRS and stopping MAX_SCAN_DEPTH levels down."""
+    base_depth = len(root.parts)
+    for dirpath, dirnames, filenames in os.walk(root):
+        current = Path(dirpath)
+        if len(current.parts) - base_depth >= MAX_SCAN_DEPTH:
+            dirnames.clear()
+        else:
+            dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        for name in filenames:
+            if name.lower().endswith(".tex"):
+                yield current / name
 
 
 def discover_modified_tex(roots: list[Path]) -> list[Path]:
@@ -111,7 +129,7 @@ def discover_modified_tex(roots: list[Path]) -> list[Path]:
                 ):
                     found[candidate] = None
         else:
-            for candidate in root.rglob("*.tex"):
+            for candidate in iter_tex_files(root):
                 if set(candidate.parts) & SKIP_DIRS:
                     continue
                 try:
