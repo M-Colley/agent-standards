@@ -217,6 +217,25 @@ def check_hook_unicode_paths() -> list[str]:
     return errors
 
 
+def check_hook_staged_rename() -> list[str]:
+    """A staged rename must report the new path, which git -z lists before the source path."""
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp)
+        init_repo_with_tex(repo, "old.tex", "We evaluate the prototype.\n")
+        git = ["git", "-C", str(repo), "-c", "user.name=ci", "-c", "user.email=ci@example.invalid"]
+        for args in (
+            ["add", "old.tex"],
+            ["commit", "-q", "-m", "init"],
+            ["mv", "old.tex", "new.tex"],
+        ):
+            subprocess.run([*git, *args], capture_output=True, check=True)
+        (repo / "new.tex").write_text("In order to test this.\n", encoding="utf-8")
+        found = sorted(p.name for p in stop_prose_gate.discover_modified_tex([repo]))
+    if found != ["new.tex"]:
+        return [f"Expected the staged rename to report new.tex, got: {found}"]
+    return []
+
+
 def check_fallback_scan_bounds() -> list[str]:
     """Non-git fallback must prune SKIP_DIRS and stop MAX_SCAN_DEPTH levels below the root."""
     depth = stop_prose_gate.MAX_SCAN_DEPTH
@@ -287,6 +306,7 @@ def main() -> int:
         + check_markdown_hygiene()
         + check_hooks_behavior()
         + check_hook_unicode_paths()
+        + check_hook_staged_rename()
         + check_fallback_scan_bounds()
         + check_installer_roundtrip()
     )
