@@ -29,6 +29,12 @@ SKIP_DIRS = {
 # Directory levels the non-git fallback scans below a workspace root. Bounds Stop latency in
 # large non-repository folders such as a home directory.
 MAX_SCAN_DEPTH = 4
+# mechcheck's config names and main-document test (mechcheck.config, mechcheck.texsource).
+MECHCHECK_CONFIGS = ("mechcheck.yaml", "mechcheck.yml", ".mechcheck.yaml", ".mechcheck.yml")
+DOCUMENTCLASS_RE = re.compile(
+    r"^[^%\n]*\\documentclass\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}", flags=re.MULTILINE
+)
+MECHCHECK_EXIT_FINDINGS = 1  # 0 clean, 2 usage error such as no main document, 3 internal error
 SKIP_ENV_RE = re.compile(
     r"\\begin\{(verbatim|lstlisting|minted|tabular\*?|tabularx|longtable|thebibliography|equation\*?|align\*?|gather\*?|tikzpicture)\}"
     r".*?\\end\{\1\}",
@@ -166,20 +172,59 @@ def check_tex_file(path: Path) -> list[str]:
     return issues
 
 
-def run_mechcheck(tex_files: list[Path]) -> list[str]:
+def is_project_root(folder: Path) -> bool:
+    """True if folder holds a mechcheck config or a main document by mechcheck's criteria."""
+    if any((folder / name).is_file() for name in MECHCHECK_CONFIGS):
+        return True
+    try:
+        entries = list(folder.iterdir())
+    except OSError:
+        return False
+    for tex in entries:
+        if tex.suffix.lower() != ".tex" or not tex.is_file():
+            continue
+        try:
+            head = tex.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if "\\documentclass" not in head or "\\begin{document}" not in head:
+            continue
+        cls = DOCUMENTCLASS_RE.search(head)
+        if not (cls and cls.group(1).strip() in ("standalone", "subfiles")):
+            return True
+    return False
+
+
+def find_project_root(tex: Path, roots: list[Path]) -> Path | None:
+    """Nearest folder from tex up to its git or workspace root that holds a mechcheck project."""
+    chain = [tex.parent, *tex.parent.parents]
+    boundary = next((d for d in chain if (d / ".git").exists()), None)
+    if boundary is None:
+        boundary = next((d for d in chain if d in roots), tex.parent)
+    for folder in chain:
+        if is_project_root(folder):
+            return folder
+        if folder == boundary:
+            break
+    return None
+
+
+def run_mechcheck(tex_files: list[Path], roots: list[Path]) -> list[str]:
+    """Run mechcheck once per project that contains a modified .tex file."""
     if importlib.util.find_spec("mechcheck") is None:
         return []
+    resolved_roots = [r.resolve() for r in roots]
     checked_dirs: set[Path] = set()
     errors: list[str] = []
     for tex in tex_files:
-        parent = tex.parent
-        if parent in checked_dirs:
+        project = find_project_root(tex, resolved_roots)
+        if project is None or project in checked_dirs:
             continue
-        checked_dirs.add(parent)
+        checked_dirs.add(project)
         try:
             # mechcheck reconfigures its output streams to UTF-8.
             proc = subprocess.run(
-                [sys.executable, "-m", "mechcheck", "check", str(parent), "--offline"],
+                [sys.executable, "-m", "mechcheck", "check", str(project), "--offline"],
                 capture_output=True,
                 encoding="utf-8",
                 errors="replace",
@@ -188,13 +233,13 @@ def run_mechcheck(tex_files: list[Path]) -> list[str]:
             )
         except (OSError, subprocess.TimeoutExpired):
             continue
-        if proc.returncode != 0:
+        if proc.returncode == MECHCHECK_EXIT_FINDINGS:
             lines = [
                 ln.strip()
                 for ln in (proc.stdout + "\n" + proc.stderr).splitlines()
                 if ln.strip() and ("error" in ln.lower() or re.match(r"^[A-Z]{3}\d{3}", ln.strip()))
             ]
-            errors.extend(lines[:8] or [f"mechcheck failed in {parent.name}"])
+            errors.extend(lines[:8] or [f"mechcheck failed in {project.name}"])
     return errors
 
 
@@ -219,7 +264,7 @@ def evaluate_payload(payload: dict[str, Any]) -> dict[str, Any]:
     findings: list[str] = []
     for tex in tex_files:
         findings.extend(check_tex_file(tex))
-    findings.extend(run_mechcheck(tex_files))
+    findings.extend(run_mechcheck(tex_files, roots))
 
     if not findings:
         return {}
