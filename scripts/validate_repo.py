@@ -18,6 +18,9 @@ import stop_prose_gate  # noqa: E402
 
 KEBAB_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 DASH_PUNCT_RE = re.compile(r"(\u2014|\u2013| - )")
+MAIN_DOC = (
+    "\\documentclass{article}\n\\begin{document}\nWe evaluate the prototype.\n\\end{document}\n"
+)
 
 
 def check_manifests() -> list[str]:
@@ -163,6 +166,12 @@ def init_repo_with_tex(repo: Path, rel_tex: str, text: str) -> None:
     tex.write_text(text, encoding="utf-8")
 
 
+def run_git(repo: Path, *args: str) -> None:
+    """Run git in repo with a throwaway identity for fixture commits."""
+    base = ["git", "-C", str(repo), "-c", "user.name=ci", "-c", "user.email=ci@example.invalid"]
+    subprocess.run([*base, *args], capture_output=True, check=True)
+
+
 def run_hook(
     payload: dict[str, object], env: dict[str, str] | None = None
 ) -> subprocess.CompletedProcess[bytes]:
@@ -209,7 +218,7 @@ def check_hook_unicode_paths() -> list[str]:
             encoding="utf-8",
         )
         clean = base / "clean"
-        init_repo_with_tex(clean, "paper.tex", "We evaluate the prototype.\n")
+        init_repo_with_tex(clean, "paper.tex", MAIN_DOC)
         env = {**os.environ, "PYTHONPATH": str(stub.parent)}
         proc = run_hook({"stop_hook_active": False, "cwd": str(clean)}, env=env)
         if b"MCK001" not in proc.stdout:
@@ -222,18 +231,58 @@ def check_hook_staged_rename() -> list[str]:
     with tempfile.TemporaryDirectory() as tmp:
         repo = Path(tmp)
         init_repo_with_tex(repo, "old.tex", "We evaluate the prototype.\n")
-        git = ["git", "-C", str(repo), "-c", "user.name=ci", "-c", "user.email=ci@example.invalid"]
         for args in (
             ["add", "old.tex"],
             ["commit", "-q", "-m", "init"],
             ["mv", "old.tex", "new.tex"],
         ):
-            subprocess.run([*git, *args], capture_output=True, check=True)
+            run_git(repo, *args)
         (repo / "new.tex").write_text("In order to test this.\n", encoding="utf-8")
         found = sorted(p.name for p in stop_prose_gate.discover_modified_tex([repo]))
     if found != ["new.tex"]:
         return [f"Expected the staged rename to report new.tex, got: {found}"]
     return []
+
+
+def check_hook_mechcheck_project_root() -> list[str]:
+    """mechcheck must run from the main document's folder and skip files outside any project."""
+    errors: list[str] = []
+    with tempfile.TemporaryDirectory() as tmp:
+        base = Path(tmp)
+        # Stub with mechcheck's exit codes: 2 without a main document, 1 for findings.
+        stub = base / "stub" / "mechcheck"
+        stub.mkdir(parents=True)
+        (stub / "__init__.py").write_text("", encoding="utf-8")
+        (stub / "__main__.py").write_text(
+            "import sys\n"
+            "from pathlib import Path\n"
+            "root = Path(sys.argv[2])\n"
+            "if not (root / 'main.tex').is_file():\n"
+            "    sys.exit(2)\n"
+            "print(f'MCK001 error: checked {root.name}')\n"
+            "sys.exit(1)\n",
+            encoding="utf-8",
+        )
+        env = {**os.environ, "PYTHONPATH": str(stub.parent)}
+
+        paper = base / "paper"
+        init_repo_with_tex(paper, "sections/intro.tex", "We evaluate it.\n")
+        (paper / "main.tex").write_text(MAIN_DOC, encoding="utf-8")
+        run_git(paper, "add", "-A")
+        run_git(paper, "commit", "-q", "-m", "init")
+        (paper / "sections" / "intro.tex").write_text("We evaluate it twice.\n", encoding="utf-8")
+        proc = run_hook({"stop_hook_active": False, "cwd": str(paper)}, env=env)
+        if b"checked paper" not in proc.stdout:
+            errors.append(f"Expected mechcheck in paper/, got: {proc.stdout!r} {proc.stderr!r}")
+
+        notes = base / "notes"
+        init_repo_with_tex(notes, "fragment.tex", "We list open questions.\n")
+        proc = run_hook({"stop_hook_active": False, "cwd": str(notes)}, env=env)
+        if proc.stdout.strip() != b"{}":
+            errors.append(
+                f"Expected no mechcheck run without a main document, got: {proc.stdout!r}"
+            )
+    return errors
 
 
 def check_fallback_scan_bounds() -> list[str]:
@@ -307,6 +356,7 @@ def main() -> int:
         + check_hooks_behavior()
         + check_hook_unicode_paths()
         + check_hook_staged_rename()
+        + check_hook_mechcheck_project_root()
         + check_fallback_scan_bounds()
         + check_installer_roundtrip()
     )
