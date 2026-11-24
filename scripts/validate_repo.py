@@ -155,6 +155,68 @@ def check_hooks_behavior() -> list[str]:
     return errors
 
 
+def init_repo_with_tex(repo: Path, rel_tex: str, text: str) -> None:
+    """Create a git repository containing one untracked .tex file."""
+    subprocess.run(["git", "init", "-q", str(repo)], capture_output=True, check=True)
+    tex = repo / rel_tex
+    tex.parent.mkdir(parents=True, exist_ok=True)
+    tex.write_text(text, encoding="utf-8")
+
+
+def run_hook(
+    payload: dict[str, object], env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[bytes]:
+    """Pipe a payload to the hook as raw UTF-8 JSON, as Claude Code and Antigravity do."""
+    return subprocess.run(
+        [sys.executable, str(REPO_ROOT / "scripts" / "stop_prose_gate.py")],
+        input=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        capture_output=True,
+        env=env,
+        check=False,
+    )
+
+
+def check_hook_unicode_paths() -> list[str]:
+    """Non-ASCII paths and UTF-8 mechcheck output must not bypass the Stop gate."""
+    errors: list[str] = []
+    bad = "In order to test this \u2014 see \\ref{sec:intro}.\n"
+    with tempfile.TemporaryDirectory() as tmp:
+        base = Path(tmp)
+        repos = {
+            "non-ASCII repository": (base / "J\u00fcrgen", "paper.tex"),
+            "non-ASCII file name": (base / "names", "\u00dcbersicht.tex"),
+            "non-ASCII subdirectory": (base / "subdirs", "Kapitel_\u00e4/intro.tex"),
+        }
+        for label, (repo, rel_tex) in repos.items():
+            init_repo_with_tex(repo, rel_tex, bad)
+            res = stop_prose_gate.evaluate_payload({"stop_hook_active": False, "cwd": str(repo)})
+            if res.get("decision") != "block":
+                errors.append(f"Expected 'block' for {label}, got: {res}")
+
+        proc = run_hook({"stop_hook_active": False, "cwd": str(base / "J\u00fcrgen")})
+        if b'"decision": "block"' not in proc.stdout:
+            errors.append(f"Expected 'block' for UTF-8 stdin, got: {proc.stdout!r} {proc.stderr!r}")
+
+        # The mechcheck CLI reconfigures stdout to UTF-8; this stub does the same.
+        stub = base / "stub" / "mechcheck"
+        stub.mkdir(parents=True)
+        (stub / "__init__.py").write_text("", encoding="utf-8")
+        (stub / "__main__.py").write_text(
+            "import sys\n"
+            "sys.stdout.reconfigure(encoding='utf-8')\n"
+            "print('MCK001 error: stray \\u201d quote')\n"
+            "sys.exit(1)\n",
+            encoding="utf-8",
+        )
+        clean = base / "clean"
+        init_repo_with_tex(clean, "paper.tex", "We evaluate the prototype.\n")
+        env = {**os.environ, "PYTHONPATH": str(stub.parent)}
+        proc = run_hook({"stop_hook_active": False, "cwd": str(clean)}, env=env)
+        if b"MCK001" not in proc.stdout:
+            errors.append(f"Expected stub mechcheck to block, got: {proc.stdout!r} {proc.stderr!r}")
+    return errors
+
+
 def check_installer_roundtrip() -> list[str]:
     errors: list[str] = []
     installer = REPO_ROOT / "scripts" / "install.py"
@@ -206,6 +268,7 @@ def main() -> int:
         check_manifests()
         + check_markdown_hygiene()
         + check_hooks_behavior()
+        + check_hook_unicode_paths()
         + check_installer_roundtrip()
     )
     if failures:
