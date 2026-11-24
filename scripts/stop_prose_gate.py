@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import re
 import subprocess
 import sys
@@ -71,10 +72,10 @@ def discover_modified_tex(roots: list[Path]) -> list[Path]:
             continue
         root = raw_root if raw_root.is_dir() else raw_root.parent
         try:
+            # -z emits raw UTF-8 paths; without it git quotes non-ASCII names as octal escapes.
             proc = subprocess.run(
-                ["git", "-C", str(root), "status", "--porcelain", "-uall"],
+                ["git", "-C", str(root), "status", "--porcelain", "-z", "-uall"],
                 capture_output=True,
-                text=True,
                 timeout=5,
                 check=False,
             )
@@ -85,21 +86,23 @@ def discover_modified_tex(roots: list[Path]) -> list[Path]:
             top = subprocess.run(
                 ["git", "-C", str(root), "rev-parse", "--show-toplevel"],
                 capture_output=True,
-                text=True,
                 timeout=5,
                 check=False,
             )
-            repo_base = (
-                Path(top.stdout.strip()) if top.returncode == 0 and top.stdout.strip() else root
-            )
-            for line in proc.stdout.splitlines():
-                if len(line) < 4:
+            # Git prints paths in UTF-8; os.fsdecode decodes them on every platform.
+            top_dir = os.fsdecode(top.stdout).strip()
+            repo_base = Path(top_dir) if top.returncode == 0 and top_dir else root
+            skip_source = False
+            for record in os.fsdecode(proc.stdout).split("\0"):
+                if skip_source:  # source path that follows a rename or copy record
+                    skip_source = False
                     continue
-                status, rel_raw = line[:2], line[3:].strip().strip('"')
+                if len(record) < 4:
+                    continue
+                status, rel_raw = record[:2], record[3:]
+                skip_source = "R" in status or "C" in status
                 if "D" in status:
                     continue
-                if " -> " in rel_raw:
-                    rel_raw = rel_raw.split(" -> ", 1)[1].strip('"')
                 candidate = (repo_base / rel_raw).resolve()
                 if (
                     candidate.suffix.lower() == ".tex"
@@ -156,10 +159,12 @@ def run_mechcheck(tex_files: list[Path]) -> list[str]:
             continue
         checked_dirs.add(parent)
         try:
+            # mechcheck reconfigures its output streams to UTF-8.
             proc = subprocess.run(
                 [sys.executable, "-m", "mechcheck", "check", str(parent), "--offline"],
                 capture_output=True,
-                text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=12,
                 check=False,
             )
@@ -211,12 +216,13 @@ def evaluate_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def main() -> int:
-    raw = sys.stdin.read().strip()
-    if not raw:
+    # Read bytes: hosts send UTF-8 JSON, and text-mode stdin uses the ANSI code page on Windows.
+    raw = sys.stdin.buffer.read()
+    if not raw.strip():
         return emit({})
     try:
         payload = json.loads(raw)
-    except json.JSONDecodeError:
+    except ValueError:  # invalid JSON or invalid UTF-8
         return emit({})
     if not isinstance(payload, dict):
         return emit({})
