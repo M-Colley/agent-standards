@@ -2,7 +2,7 @@
   "$schema": "https://antigravity.google/schemas/v1/plugin.json",
   "name": "agent-standards",
   "displayName": "HCI and Open Science Standards",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "description": "Direct scientific prose rules, Colley et al. HCI empirical paper specification, mechcheck verification, and open-science engineering guardrails.",
   "logo": "assets/logo.svg",
   "suggestedPrompts": [

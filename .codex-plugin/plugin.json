@@ -1,6 +1,6 @@
 {
   "name": "agent-standards",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "description": "Direct scientific prose rules, Colley et al. HCI empirical paper specification, mechcheck verification, and open-science engineering guardrails.",
   "author": {
     "name": "Mark Colley",
