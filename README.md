@@ -91,7 +91,7 @@ python scripts/install.py --agents codex
 
 ## Included Components
 
-* `rules/AGENTS.md` and `rules/upstream-prs.md`: Always-on and conditional rules enforcing concise candid tone, HCI technical register, single-line prose paragraph reflow with formatter-safe code/commit limits, prose dash prohibition with lexical hyphen retention, banned rhetorical styles, open science, permissive dependency reuse, newest stable software and runtime version targeting, auto-fixers, live CI verification (`gh pr checks` and `gh run view --log-failed`), merged-branch cleanup, upstream pull requests, and model tiering.
+* `rules/AGENTS.md` and `rules/upstream-prs.md`: Always-on and conditional rules enforcing concise candid tone, HCI technical register, single-line prose paragraph reflow with formatter-safe code/commit limits, prose dash prohibition with lexical hyphen retention, banned rhetorical styles, open science, codebase ownership, permissive dependency reuse, newest stable software and runtime version targeting, auto-fixers, live CI verification (`gh pr checks` and `gh run view --log-failed`), merged-branch cleanup, upstream pull requests, and model tiering.
 * `skills/hci-paper-writing/`: Progressive-disclosure skill (`SKILL.md`, `references/colley-hci-spec.md`, `references/peer-review-rubric.md`, and `agents/openai.yaml`) encoding the Colley et al. (CHI, IMWUT, AutomotiveUI) quantitative style specification, mixed-effects and equivalence-testing (`TOST` / $BF_{01}$) statistical reporting rules, a four-gate peer-review rubric, and [`mechcheck`](https://github.com/M-Colley/mechcheck) verification.
 * `hooks.json`, `scripts/stop_prose_gate.py`, and `scripts/claude_session_start.py`: Cross-platform Python 3.12+ lifecycle hooks for Antigravity and Claude Code.
 
