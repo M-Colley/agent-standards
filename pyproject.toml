@@ -1,6 +1,6 @@
 [project]
 name = "agent-standards"
-version = "1.2.4"
+version = "1.3.0"
 description = "Cross-agent HCI scientific writing rules, skills, and verification hooks for Antigravity, Claude Code, and Codex."
 readme = "README.md"
 license = { file = "LICENSE" }

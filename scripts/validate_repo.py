@@ -303,11 +303,56 @@ def check_fallback_scan_bounds() -> list[str]:
     return []
 
 
+def build_mattpocock_fixture(root: Path) -> Path:
+    mp = root / "mattpocock-fixture"
+    manifest = mp / ".claude-plugin" / "plugin.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(
+        json.dumps(
+            {
+                "name": "mattpocock-skills",
+                "version": "1.3.2",
+                "description": "Fixture engineering and productivity skills.",
+                "skills": [
+                    "./skills/engineering/tdd",
+                    "./skills/productivity/grill-me",
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    for rel, name in (
+        ("skills/engineering/tdd", "tdd"),
+        ("skills/productivity/grill-me", "grill-me"),
+        ("skills/in-progress/draft-skill", "draft-skill"),
+    ):
+        skill_dir = mp / rel
+        (skill_dir / "agents").mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            f"---\nname: {name}\ndescription: Fixture {name}.\n---\n",
+            encoding="utf-8",
+        )
+        (skill_dir / "agents" / "openai.yaml").write_text(
+            f'interface:\n  display_name: "{name}"\n',
+            encoding="utf-8",
+        )
+    return mp
+
+
 def check_installer_roundtrip() -> list[str]:
     errors: list[str] = []
     installer = REPO_ROOT / "scripts" / "install.py"
     with tempfile.TemporaryDirectory() as tmp_home:
         home = Path(tmp_home)
+        mp_fixture = build_mattpocock_fixture(home)
+        base_cmd = [
+            sys.executable,
+            str(installer),
+            "--home",
+            str(home),
+            "--mattpocock-source",
+            str(mp_fixture),
+        ]
         loose = home / ".gemini" / "config" / "rules"
         loose.mkdir(parents=True)
         (loose / "ci-verification.md").write_text("old", encoding="utf-8")
@@ -315,30 +360,62 @@ def check_installer_roundtrip() -> list[str]:
         claude_settings.parent.mkdir(parents=True)
         claude_settings.write_text('{"skipWorkflowUsageWarning": true}\n', encoding="utf-8")
 
-        p_install = subprocess.run(
-            [sys.executable, str(installer), "--home", str(home)],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        p_install = subprocess.run(base_cmd, capture_output=True, text=True, check=False)
         if p_install.returncode != 0:
             errors.append(f"install.py failed: {p_install.stdout} {p_install.stderr}")
+
+        mp_agy = home / ".gemini" / "config" / "plugins" / "mattpocock-skills"
+        for expected in (
+            mp_agy / "plugin.json",
+            mp_agy / "assets" / "logo.svg",
+            mp_agy / "skills" / "tdd" / "SKILL.md",
+            mp_agy / "skills" / "grill-me" / "SKILL.md",
+            home / ".claude" / "skills" / "tdd" / "SKILL.md",
+            home / ".codex" / "skills" / "tdd" / "agents" / "openai.yaml",
+        ):
+            if not expected.is_file():
+                errors.append(f"Expected installed companion skill file: {expected}")
+        if (mp_agy / "skills" / "draft-skill").exists() or (
+            home / ".claude" / "skills" / "draft-skill"
+        ).exists():
+            errors.append("Unpromoted in-progress skill must not be installed.")
 
         installed_settings = json.loads(claude_settings.read_text(encoding="utf-8"))
         if not installed_settings.get("hooks", {}).get("Stop"):
             errors.append("Expected Claude settings.json to register Stop hook.")
 
-        for extra_args in (["--check"], ["--uninstall"]):
-            proc = subprocess.run(
-                [sys.executable, str(installer), "--home", str(home), *extra_args],
-                capture_output=True,
-                text=True,
-                check=False,
+        p_check = subprocess.run(
+            [*base_cmd, "--check"], capture_output=True, text=True, check=False
+        )
+        if p_check.returncode != 0:
+            errors.append(f"install.py --check failed: {p_check.stdout} {p_check.stderr}")
+
+        # Verify native plugin deduplication in Claude and Codex.
+        installed_settings["enabledPlugins"] = {"mattpocock-skills@claude-plugins-official": True}
+        claude_settings.write_text(json.dumps(installed_settings) + "\n", encoding="utf-8")
+        codex_cfg = home / ".codex" / "config.toml"
+        codex_cfg.write_text('[plugins."mattpocock-skills@mattpocock"]\nenabled = true\n', "utf-8")
+        p_dedup = subprocess.run(base_cmd, capture_output=True, text=True, check=False)
+        if p_dedup.returncode != 0:
+            errors.append(f"install.py dedup failed: {p_dedup.stdout} {p_dedup.stderr}")
+        if (home / ".claude" / "skills" / "tdd").exists() or (
+            home / ".codex" / "skills" / "tdd"
+        ).exists():
+            errors.append(
+                "Expected flat mattpocock skills to deduplicate when native plugin is on."
             )
-            if proc.returncode != 0:
-                errors.append(
-                    f"install.py {' '.join(extra_args)} failed: {proc.stdout} {proc.stderr}"
-                )
+        if not (home / ".claude" / "skills" / "hci-paper-writing" / "SKILL.md").is_file():
+            errors.append("Expected hci-paper-writing to remain after mattpocock deduplication.")
+
+        p_uninstall = subprocess.run(
+            [*base_cmd, "--uninstall"], capture_output=True, text=True, check=False
+        )
+        if p_uninstall.returncode != 0:
+            errors.append(
+                f"install.py --uninstall failed: {p_uninstall.stdout} {p_uninstall.stderr}"
+            )
+        if mp_agy.exists():
+            errors.append("Expected Antigravity mattpocock-skills plugin removed on uninstall.")
         if (loose / "ci-verification.md").exists():
             errors.append("Expected migrated loose rule to be cleaned up.")
         uninstalled_settings = json.loads(claude_settings.read_text(encoding="utf-8"))
